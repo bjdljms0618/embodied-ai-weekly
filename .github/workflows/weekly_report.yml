@@ -1,0 +1,60 @@
+name: 📊 生成具身智能周报
+
+on:
+  schedule:
+    # 每周一早上 9:00 UTC+8（即 01:00 UTC）
+    - cron: '0 1 * * 1'
+  # 支持手动触发（方便第一次测试）
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout 仓库
+        uses: actions/checkout@v4
+
+      - name: 🐍 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 🤖 生成周报
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EMAIL_SENDER:      ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVER:    ${{ secrets.EMAIL_RECEIVER }}
+          FEISHU_WEBHOOK:    ${{ secrets.FEISHU_WEBHOOK }}
+        run: python generate_report.py
+
+      - name: 📨 发送邮件通知
+        env:
+          EMAIL_SENDER:   ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+        run: python notify_email.py
+        continue-on-error: true   # 邮件失败不影响主流程
+
+      - name: 🔔 推送飞书通知
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: python notify_feishu.py
+        continue-on-error: true   # 飞书失败不影响主流程
+
+      - name: 💾 提交并推送报告
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md reports/
+          git diff --cached --quiet || git commit -m "📊 具身智能周报 $(date +'%Y-%m-%d')"
+          git push
